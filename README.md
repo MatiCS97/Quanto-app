@@ -27,3 +27,13 @@ Estudio de mercado, monetización, proyección de ingresos y roadmap de desarrol
 5. Scraper: `cd services/scraper && pip install -r requirements.txt && python -m scheduler.run`
 
 Cada carpeta tiene su propio README con detalle.
+
+## Deploy del frontend (Vercel)
+
+El frontend (`apps/web`) es lo único pensado para Vercel — el backend FastAPI y el scraper con Playwright necesitan un proceso de larga duración (scheduler 24hs) que no encaja en funciones serverless, y viven aparte (Railway/Fly.io/VPS).
+
+1. Pushear este repo a GitHub.
+2. En [vercel.com/new](https://vercel.com/new), importar el repo.
+3. En la configuración del proyecto, fijar **Root Directory** en `apps/web` (Vercel detecta Next.js automáticamente ahí).
+4. Agregar las variables de entorno `NEXT_PUBLIC_SUPABASE_URL` y `NEXT_PUBLIC_SUPABASE_ANON_KEY` (ver `.env.example`) en Project Settings → Environment Variables.
+5. Cada push a `master` dispara un deploy de producción; cada PR, un preview.
