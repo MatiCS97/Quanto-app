@@ -21,8 +21,22 @@ export type ProductWithBestPrice = {
   best: BestPriceRow | null;
 };
 
+export type ProductFilters = {
+  category?: string;
+  bankName?: string;
+};
+
+const RESULT_LIMIT = 24;
+// Traemos más candidatos que RESULT_LIMIT porque el filtro por banco se
+// aplica después de calcular best_price_today (RPC por producto) — no es
+// una condición SQL directa sobre products. Con el catálogo actual (unos
+// pocos cientos de filas) es aceptable; si crece mucho hay que mover el
+// filtro de banco a una función SQL agregada.
+const CANDIDATE_LIMIT = 200;
+
 async function attachBestPrices(
-  products: { id: string; name: string; main_image_url: string | null }[]
+  products: { id: string; name: string; main_image_url: string | null }[],
+  filters?: ProductFilters
 ): Promise<ProductWithBestPrice[]> {
   const withBest = await Promise.all(
     products.map(async (product) => {
@@ -34,37 +48,75 @@ async function attachBestPrices(
     })
   );
 
-  return withBest
-    .filter((p) => p.best !== null)
-    .sort((a, b) => (a.best!.final_price ?? 0) - (b.best!.final_price ?? 0));
+  let filtered = withBest.filter((p) => p.best !== null);
+
+  if (filters?.bankName) {
+    filtered = filtered.filter((p) => p.best!.bank_name === filters.bankName);
+  }
+
+  return filtered
+    .sort((a, b) => (a.best!.final_price ?? 0) - (b.best!.final_price ?? 0))
+    .slice(0, RESULT_LIMIT);
 }
 
-export async function getLatestProducts(): Promise<ProductWithBestPrice[]> {
-  const { data: products, error } = await supabase
-    .from("products")
-    .select("id, name, main_image_url")
-    .limit(24);
+export async function getCategories(): Promise<string[]> {
+  const { data, error } = await supabase.from("products").select("category");
+  if (error || !data) return [];
+  return Array.from(new Set(data.map((d) => d.category))).sort();
+}
+
+export async function getActiveBanks(): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("bank_promotions")
+    .select("bank_name")
+    .eq("active", true);
+  if (error || !data) return [];
+  return Array.from(new Set(data.map((d) => d.bank_name))).sort();
+}
+
+export async function getLatestProducts(filters?: ProductFilters): Promise<ProductWithBestPrice[]> {
+  let builder = supabase.from("products").select("id, name, main_image_url");
+  if (filters?.category) {
+    builder = builder.eq("category", filters.category);
+  }
+
+  const { data: products, error } = await builder.limit(CANDIDATE_LIMIT);
 
   if (error || !products) {
     console.error(error);
     return [];
   }
-  return attachBestPrices(products);
+  return attachBestPrices(products, filters);
 }
 
-export async function searchProducts(query: string): Promise<ProductWithBestPrice[]> {
+export async function searchProducts(
+  query: string,
+  filters?: ProductFilters
+): Promise<ProductWithBestPrice[]> {
   const trimmed = query.trim();
   if (trimmed.length < 2) return [];
 
-  const { data: products, error } = await supabase
-    .from("products")
-    .select("id, name, main_image_url")
-    .ilike("name", `%${trimmed}%`)
-    .limit(24);
+  // Cada palabra se busca con un .ilike() propio; postgrest-js hace
+  // .append() en el query string, así que dos condiciones sobre "name"
+  // se combinan con AND (dos params name=ilike.X&name=ilike.Y), no se
+  // sobrescriben.
+  const words = trimmed.split(/\s+/).filter((w) => w.length > 0);
+
+  if (words.length === 0) return [];
+
+  let builder = supabase.from("products").select("id, name, main_image_url");
+  for (const word of words) {
+    builder = builder.ilike("name", `%${word}%`);
+  }
+  if (filters?.category) {
+    builder = builder.eq("category", filters.category);
+  }
+
+  const { data: products, error } = await builder.limit(CANDIDATE_LIMIT);
 
   if (error || !products) {
     console.error(error);
     return [];
   }
-  return attachBestPrices(products);
+  return attachBestPrices(products, filters);
 }

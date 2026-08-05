@@ -1,7 +1,20 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { getLatestProducts, searchProducts, ProductWithBestPrice } from "./actions";
+import {
+  getLatestProducts,
+  searchProducts,
+  getCategories,
+  getActiveBanks,
+  ProductWithBestPrice,
+} from "./actions";
+
+function categoryLabel(category: string) {
+  const labels: Record<string, string> = {
+    celulares: "Celulares",
+  };
+  return labels[category] ?? category.charAt(0).toUpperCase() + category.slice(1);
+}
 
 function formatGs(value: number) {
   return "Gs. " + Math.round(Number(value)).toLocaleString("es-PY");
@@ -18,6 +31,39 @@ function SearchIcon() {
       <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
       <line x1="21" y1="21" x2="16.65" y2="16.65" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
+  );
+}
+
+function FilterChip({
+  label,
+  active,
+  onClick,
+  variant = "category",
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  variant?: "category" | "bank";
+}) {
+  const activeBg = variant === "bank" ? "var(--color-accent)" : "var(--color-text)";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        padding: "7px 14px",
+        fontSize: 12.5,
+        fontWeight: 600,
+        borderRadius: 999,
+        border: active ? "1px solid transparent" : "1px solid var(--color-border-strong)",
+        background: active ? activeBg : "var(--color-surface)",
+        color: active ? "#fff" : "var(--color-text-muted)",
+        cursor: "pointer",
+        transition: "background 150ms, color 150ms, border-color 150ms",
+      }}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -45,26 +91,45 @@ export default function SearchableProductGrid() {
   const [isPending, startTransition] = useTransition();
   const [loaded, setLoaded] = useState(false);
 
+  const [categories, setCategories] = useState<string[]>([]);
+  const [banks, setBanks] = useState<string[]>([]);
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [activeBank, setActiveBank] = useState<string | null>(null);
+
   useEffect(() => {
-    getLatestProducts().then((data) => {
-      setProducts(data);
-      setLoaded(true);
-    });
+    getCategories().then(setCategories);
+    getActiveBanks().then(setBanks);
   }, []);
 
   useEffect(() => {
-    const handle = setTimeout(() => {
+    const filters = {
+      category: activeCategory ?? undefined,
+      bankName: activeBank ?? undefined,
+    };
+
+    const runLoad = () => {
       startTransition(() => {
-        if (query.trim().length < 2) {
-          getLatestProducts().then(setProducts);
-        } else {
-          searchProducts(query).then(setProducts);
-        }
+        const load =
+          query.trim().length >= 2
+            ? searchProducts(query, filters)
+            : getLatestProducts(filters);
+
+        load.then((data) => {
+          setProducts(data);
+          setLoaded(true);
+        });
       });
-    }, 300);
+    };
+
+    if (!loaded) {
+      runLoad();
+      return;
+    }
+
+    const handle = setTimeout(runLoad, 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query]);
+  }, [query, activeCategory, activeBank]);
 
   return (
     <>
@@ -115,6 +180,70 @@ export default function SearchableProductGrid() {
             }}
           />
         </div>
+
+        {categories.length > 0 && (
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              gap: 8,
+              marginTop: 20,
+              flexWrap: "wrap",
+            }}
+          >
+            <FilterChip
+              label="Todas las categorías"
+              active={activeCategory === null}
+              onClick={() => setActiveCategory(null)}
+            />
+            {categories.map((cat) => (
+              <FilterChip
+                key={cat}
+                label={categoryLabel(cat)}
+                active={activeCategory === cat}
+                onClick={() => setActiveCategory(cat)}
+              />
+            ))}
+          </div>
+        )}
+
+        {banks.length > 0 && (
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              gap: 8,
+              marginTop: 10,
+              flexWrap: "wrap",
+            }}
+          >
+            <span
+              style={{
+                fontSize: 12,
+                color: "var(--color-text-muted)",
+                marginRight: 2,
+              }}
+            >
+              Promo con:
+            </span>
+            <FilterChip
+              label="Todos los bancos"
+              active={activeBank === null}
+              onClick={() => setActiveBank(null)}
+              variant="bank"
+            />
+            {banks.map((bank) => (
+              <FilterChip
+                key={bank}
+                label={bank}
+                active={activeBank === bank}
+                onClick={() => setActiveBank(bank)}
+                variant="bank"
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       {!loaded ? (
@@ -134,6 +263,8 @@ export default function SearchableProductGrid() {
           <p style={{ fontSize: 15, margin: 0 }}>
             {query.trim().length >= 2
               ? `No encontramos productos para "${query.trim()}".`
+              : activeBank
+              ? `Ningún producto tiene una promo activa de ${activeBank} hoy.`
               : "Todavía no hay productos cargados."}
           </p>
         </div>
