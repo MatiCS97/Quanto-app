@@ -8,6 +8,8 @@ Selectores CSS confirmados por exploración real:
 - Imagen: .slider-product-image
 """
 
+from typing import List
+
 from playwright.async_api import async_playwright
 
 from .base_spider import BaseSpider, ScrapedItem
@@ -17,7 +19,7 @@ class MegaElectronicosSpider(BaseSpider):
     store_name = "Mega Electrónicos"
     base_url = "https://megaelectronicos.com.py"
 
-    async def search(self, query: str) -> list[ScrapedItem]:
+    async def search(self, query: str) -> List[ScrapedItem]:
         """Buscar productos por término.
 
         La API de búsqueda está disponible en /api/search-products
@@ -28,15 +30,15 @@ class MegaElectronicosSpider(BaseSpider):
         url = f"{self.base_url}/producto/categoria/celular/110101"
         return await self._scrape_listing(url)
 
-    async def fetch_category(self, category_url: str) -> list[ScrapedItem]:
+    async def fetch_category(self, category_url: str) -> List[ScrapedItem]:
         """Scraping de categoría de productos."""
         if not category_url.startswith("http"):
             category_url = f"{self.base_url}{category_url}"
         return await self._scrape_listing(category_url)
 
-    async def _scrape_listing(self, url: str) -> list[ScrapedItem]:
+    async def _scrape_listing(self, url: str) -> List[ScrapedItem]:
         """Scraping de página de listado de productos."""
-        items: list[ScrapedItem] = []
+        items: List[ScrapedItem] = []
         async with async_playwright() as pw:
             browser = await pw.chromium.launch(headless=True)
             page = await browser.new_page()

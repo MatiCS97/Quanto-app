@@ -5,6 +5,8 @@ cambie (va a pasar, es el riesgo #1 del proyecto), este es el archivo
 a tocar — no el pipeline ni el scheduler.
 """
 
+from typing import List
+
 from playwright.async_api import async_playwright
 
 from .base_spider import BaseSpider, ScrapedItem
@@ -14,15 +16,15 @@ class ExampleStoreSpider(BaseSpider):
     store_name = "Example Store"
     base_url = "https://www.example-store.com.py"
 
-    async def search(self, query: str) -> list[ScrapedItem]:
+    async def search(self, query: str) -> List[ScrapedItem]:
         url = f"{self.base_url}/buscar?q={query}"
         return await self._scrape_listing(url)
 
-    async def fetch_category(self, category_url: str) -> list[ScrapedItem]:
+    async def fetch_category(self, category_url: str) -> List[ScrapedItem]:
         return await self._scrape_listing(category_url)
 
-    async def _scrape_listing(self, url: str) -> list[ScrapedItem]:
-        items: list[ScrapedItem] = []
+    async def _scrape_listing(self, url: str) -> List[ScrapedItem]:
+        items: List[ScrapedItem] = []
         async with async_playwright() as pw:
             browser = await pw.chromium.launch(headless=True)
             page = await browser.new_page()
