@@ -12,6 +12,8 @@ export type BestPriceRow = {
   discount_percentage: number | null;
   max_refund_amount: number | null;
   final_price: number;
+  is_indirect_source: boolean | null;
+  source_note: string | null;
 };
 
 export type ProductWithBestPrice = {

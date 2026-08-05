@@ -6,6 +6,11 @@ las guarda en Supabase como si fueran esas tiendas reales — nunca como
 LIMITACIÓN DE MONEDA: los precios llegan en USD, no en Gs. Este script
 convierte con una tasa fija documentada abajo. Esa tasa se desactualiza
 con el tiempo — revisarla antes de confiar en el precio final mostrado.
+El aviso de "fuente indirecta / precio convertido" que ve el usuario NO
+se mete en el nombre del producto — vive en stores.is_indirect_source y
+stores.source_note (requiere haber corrido las migraciones
+0003_indirect_sources.sql y 0004_expose_indirect_source.sql). Este
+script marca esas columnas al crear/actualizar Nissei y VisãoVIP.
 
 Uso: python scripts/load_comprasparaguai.py [max_pages] [max_products]
 Requiere .env en la raiz del repo con SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY.
@@ -41,6 +46,12 @@ _WEBSITE_URLS = {
     "VisãoVIP": "https://visaovip.com",
 }
 
+_SOURCE_NOTE = (
+    "Precio convertido de USD a Gs. (cotización referencial BCP), "
+    "obtenido vía un agregador de terceros porque el sitio original "
+    "bloquea el acceso directo."
+)
+
 
 async def main():
     max_pages = int(sys.argv[1]) if len(sys.argv) > 1 else 2
@@ -56,7 +67,10 @@ async def main():
     for store_name, items in by_store.items():
         print(f"{store_name}: {len(items)} ofertas via Compras Paraguai (USD -> Gs. tasa {USD_TO_GS})")
 
-        store_id = get_or_create_store(base_url, service_key, store_name, _WEBSITE_URLS.get(store_name, ""))
+        store_id = get_or_create_store(
+            base_url, service_key, store_name, _WEBSITE_URLS.get(store_name, ""),
+            is_indirect_source=True, source_note=_SOURCE_NOTE,
+        )
         print(f"  Store id: {store_id}")
 
         loaded = 0

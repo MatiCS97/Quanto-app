@@ -95,13 +95,15 @@ Este spider NO convierte a Gs. con una tasa inventada/hardcodeada: eso
 sería peor que no tener el dato, porque produciría un precio "en
 guaraníes" falso que nadie podría auditar. En su lugar:
   - `ScrapedItem.price` / `original_price` quedan en USD tal cual los
-    reporta el sitio (float, ej. 910.00).
-  - El `title` de cada item se sufija con `" [PRECIO EN USD, NO Gs.]"`
-    para que sea imposible de pasar por alto en cualquier vista/log/DB.
+    reporta el sitio (float, ej. 910.00). El `title` NO lleva ningún
+    aviso de moneda embebido — ese aviso vive en `stores.is_indirect_source`
+    / `stores.source_note` (migración 0003_indirect_sources.sql), que la
+    UI usa para mostrarlo a nivel de tienda, no de producto.
   - Cualquier script de carga (`scripts/load_*.py`) que use este spider
     DEBE decidir explícitamente qué hacer con la conversión (aplicar una
     tasa documentada externamente, o rechazar la carga) antes de meter
     estos precios en `product_prices`. Este spider no lo decide por vos.
+    Ver `scripts/load_comprasparaguai.py` para la tasa usada.
 
 Formato de precio fuente: "US$ 910,00" o "US$ 1.325,00" (punto de miles,
 coma decimal — estilo pt-BR/es-PY). `_parse_brl_usd_price` maneja ambos.
@@ -123,8 +125,6 @@ _HEADERS = {
     ),
     "Accept-Language": "pt-BR,pt;q=0.9,es;q=0.8",
 }
-
-_MONEDA_AVISO = " [PRECIO EN USD, NO Gs.]"
 
 # Alcance deliberadamente acotado — ver docstring del módulo. Comparación
 # case-insensitive porque el sitio no siempre capitaliza igual. Todas las
@@ -282,12 +282,10 @@ def _parse_offers(html: str, product_url: str):
         img = box.select_one(".promocao-item-img img")
         image_url = img.get("data-src") or img.get("src") if img else None
 
-        title = f"{base_title}{_MONEDA_AVISO}"
-
         yield (
             store_name_canonico,
             ScrapedItem(
-                title=title,
+                title=base_title,
                 price=price_usd,
                 original_price=None,
                 product_url=final_url,

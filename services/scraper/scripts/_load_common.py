@@ -45,7 +45,7 @@ def supabase_request(method, path, base_url, service_key, payload=None, prefer="
         return json.loads(body) if body else None
 
 
-def get_or_create_store(base_url, service_key, store_name, website_url):
+def get_or_create_store(base_url, service_key, store_name, website_url, is_indirect_source=False, source_note=None):
     escaped = urllib.parse.quote(store_name, safe="")
     existing = supabase_request(
         "GET", f"stores?name=eq.{escaped}&select=id",
@@ -54,9 +54,14 @@ def get_or_create_store(base_url, service_key, store_name, website_url):
     if existing:
         return existing[0]["id"]
 
+    payload = {"name": store_name, "website_url": website_url}
+    if is_indirect_source:
+        payload["is_indirect_source"] = True
+        payload["source_note"] = source_note
+
     created = supabase_request(
         "POST", "stores", base_url, service_key,
-        payload={"name": store_name, "website_url": website_url},
+        payload=payload,
     )
     return created[0]["id"]
 
