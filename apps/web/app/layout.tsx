@@ -1,5 +1,6 @@
 import "./globals.css";
 import { Analytics } from '@vercel/analytics/next';
+import ChatWidget from "./ChatWidget";
 
 export const metadata = {
   title: "Quanto",
@@ -11,6 +12,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="es">
       <body>
         {children}
+        <ChatWidget />
         <Analytics />
       </body>
     </html>

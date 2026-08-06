@@ -28,6 +28,7 @@ export type ProductFilters = {
   category?: string;
   bankName?: string;
   cardType?: "credito" | "debito";
+  storeName?: string;
 };
 
 export type BankOption = {
@@ -62,6 +63,9 @@ async function attachBestPrices(
   if (filters?.bankName) {
     filtered = filtered.filter((p) => p.best!.bank_name === filters.bankName);
   }
+  if (filters?.storeName) {
+    filtered = filtered.filter((p) => p.best!.store_name === filters.storeName);
+  }
   if (filters?.cardType) {
     // "ambas" en la promo significa que aplica tanto a crédito como a
     // débito — no es un tercer valor excluyente, así que matchea con
@@ -77,9 +81,21 @@ async function attachBestPrices(
 }
 
 export async function getCategories(): Promise<string[]> {
-  const { data, error } = await supabase.from("products").select("category");
+  // PostgREST devuelve máximo 1000 filas por defecto: no alcanza para
+  // traer TODAS las categorías reales si el catálogo supera esa cantidad
+  // de productos (pasó con 1436 productos: "notebook"/"smartwatch"/
+  // "tablet" quedaban fuera del corte y desaparecían del dropdown). Se
+  // pide distinct vía RPC en vez de select+dedupe en JS para no depender
+  // de traer todas las filas.
+  const { data, error } = await supabase.rpc("distinct_product_categories");
   if (error || !data) return [];
-  return Array.from(new Set(data.map((d) => d.category))).sort();
+  return (data as { category: string }[]).map((d) => d.category).sort();
+}
+
+export async function getStores(): Promise<string[]> {
+  const { data, error } = await supabase.from("stores").select("name");
+  if (error || !data) return [];
+  return Array.from(new Set(data.map((d) => d.name))).sort((a, b) => a.localeCompare(b));
 }
 
 export async function getActiveBanks(): Promise<BankOption[]> {
@@ -100,10 +116,38 @@ export async function getActiveBanks(): Promise<BankOption[]> {
   return options.sort((a, b) => a.bankName.localeCompare(b.bankName));
 }
 
+async function productIdsForStore(storeName: string): Promise<string[] | null> {
+  // El filtro de tienda se aplica sobre el resultado de best_price_today
+  // (que elige la tienda MÁS BARATA por producto), no sobre products
+  // directamente -- si no acotamos el candidate set acá, una tienda que
+  // rara vez gana el mejor precio puede quedar sin resultados aunque
+  // tenga cientos de productos cargados, porque el CANDIDATE_LIMIT se
+  // agota con productos de otras tiendas antes de llegar a los suyos.
+  const { data: store } = await supabase
+    .from("stores")
+    .select("id")
+    .eq("name", storeName)
+    .maybeSingle();
+  if (!store) return [];
+
+  const { data: prices, error } = await supabase
+    .from("product_prices")
+    .select("product_id")
+    .eq("store_id", store.id)
+    .limit(CANDIDATE_LIMIT);
+  if (error || !prices) return [];
+  return prices.map((p) => p.product_id);
+}
+
 export async function getLatestProducts(filters?: ProductFilters): Promise<ProductWithBestPrice[]> {
   let builder = supabase.from("products").select("id, name, main_image_url");
   if (filters?.category) {
     builder = builder.eq("category", filters.category);
+  }
+  if (filters?.storeName) {
+    const ids = await productIdsForStore(filters.storeName);
+    if (!ids || ids.length === 0) return [];
+    builder = builder.in("id", ids);
   }
 
   const { data: products, error } = await builder.limit(CANDIDATE_LIMIT);
@@ -136,6 +180,11 @@ export async function searchProducts(
   }
   if (filters?.category) {
     builder = builder.eq("category", filters.category);
+  }
+  if (filters?.storeName) {
+    const ids = await productIdsForStore(filters.storeName);
+    if (!ids || ids.length === 0) return [];
+    builder = builder.in("id", ids);
   }
 
   const { data: products, error } = await builder.limit(CANDIDATE_LIMIT);

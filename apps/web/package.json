@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@google/genai": "^2.16.0",
     "@supabase/supabase-js": "2.45.4",
     "@vercel/analytics": "^2.0.1",
     "next": "15.0.7",

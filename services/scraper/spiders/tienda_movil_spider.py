@@ -25,14 +25,35 @@ Nota sobre bloqueo: una prueba previa con un fetcher distinto (no httpx)
 dio 403 al forzar https. Con httpx real + headers de navegador completos
 (User-Agent, Accept, Accept-Language, Referer) el sitio respondió 200 sin
 problema — no hay bloqueo real ni challenge de Cloudflare.
+
+Caso especial "Pre Venta Exclusiva" (detectado 06/08/2026, ej. Galaxy Z
+Fold 8 / Flip 8): estos productos tienen una opción de reserva con dos
+variantes ("Reservar por el monto total" vs "Reservar por Gs 700.000",
+una seña) via combinaciones de PrestaShop. El precio en el listado
+(span.product-price content) refleja la variante que el sitio deja
+seleccionada por default en esa card -- para varios de estos productos
+esa default es la SEÑA (Gs. 700.000), no el precio real del celular. El
+precio real nunca aparece en el HTML estático: se recalcula client-side
+via JS al tildar el radio "Reservar por el monto total" (confirmado
+interceptando la petición AJAX real con un navegador headed). Por eso
+estos casos requieren Playwright para forzar esa variante y leer el
+precio ya recalculado, mientras el resto del catálogo sigue usando
+httpx (mucho más liviano). Se detectan por el href de la card:
+contiene "opcion_de_reserva-reservar_por_gs" cuando la default es la
+seña, vs "opcion_de_reserva-reservar_por_el_monto_total" cuando ya es
+el precio real.
 """
 
 from typing import List, Optional
 
 import httpx
 from bs4 import BeautifulSoup
+from playwright.async_api import async_playwright
 
 from .base_spider import BaseSpider, ScrapedItem
+
+_RESERVATION_FEE_MARKER = "opcion_de_reserva-reservar_por_gs_"
+_RESERVATION_FULL_MARKER = "opcion_de_reserva-reservar_por_el_monto_total"
 
 _HEADERS = {
     "User-Agent": (
@@ -76,7 +97,50 @@ class TiendaMovilSpider(BaseSpider):
                 break
             items.extend(page_items)
 
+        await self._fix_reservation_fee_prices(items)
         return items
+
+    async def _fix_reservation_fee_prices(self, items: List[ScrapedItem]) -> None:
+        """Corrige en el lugar los items cuyo precio de listado es la seña
+        de reserva (ej. Gs. 700.000) en vez del precio real del producto.
+        Ver nota de clase sobre "Pre Venta Exclusiva"."""
+        affected = [item for item in items if _RESERVATION_FEE_MARKER in item.product_url]
+        if not affected:
+            return
+
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(headless=True)
+            page = await browser.new_page()
+            for item in affected:
+                try:
+                    real_price = await self._read_real_price(page, item.product_url)
+                    if real_price and real_price > item.price:
+                        item.price = real_price
+                except Exception:
+                    # Si falla la corrección, se deja el precio de listado
+                    # tal cual -- mejor un precio de seña visible (obvio
+                    # que está mal) que tirar el item entero.
+                    continue
+            await browser.close()
+
+    async def _read_real_price(self, page, product_url: str) -> Optional[float]:
+        base_url = product_url.split("#")[0]
+        await page.goto(base_url, wait_until="networkidle", timeout=30000)
+
+        radio = page.locator(
+            f"input[type=radio][title='Reservar por el monto total']"
+        ).first
+        if await radio.count() == 0:
+            return None
+        await radio.check(force=True)
+        await page.wait_for_timeout(1500)
+
+        price_el = page.locator("span.product-price").first
+        if await price_el.count() == 0:
+            return None
+        content = await price_el.get_attribute("content")
+        text = content or await price_el.inner_text()
+        return _parse_guarani_price(text)
 
     async def _scrape_listing(self, url: str) -> List[ScrapedItem]:
         """Scraping de una página de listado usando httpx + BeautifulSoup."""

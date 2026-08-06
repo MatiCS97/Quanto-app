@@ -6,6 +6,7 @@ import {
   searchProducts,
   getCategories,
   getActiveBanks,
+  getStores,
   ProductWithBestPrice,
   BankOption,
 } from "./actions";
@@ -62,6 +63,14 @@ function InfoIcon() {
       <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
       <line x1="12" y1="11" x2="12" y2="16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
       <circle cx="12" cy="7.5" r="1.2" fill="currentColor" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
   );
 }
@@ -157,12 +166,15 @@ export default function SearchableProductGrid() {
 
   const [categories, setCategories] = useState<string[]>([]);
   const [banks, setBanks] = useState<BankOption[]>([]);
+  const [stores, setStores] = useState<string[]>([]);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [activeBankKey, setActiveBankKey] = useState<string>("");
+  const [activeStore, setActiveStore] = useState<string | null>(null);
 
   useEffect(() => {
     getCategories().then(setCategories);
     getActiveBanks().then(setBanks);
+    getStores().then(setStores);
   }, []);
 
   const activeBankOption = banks.find(
@@ -177,6 +189,7 @@ export default function SearchableProductGrid() {
         activeBankOption?.cardType && activeBankOption.cardType !== "ambas"
           ? (activeBankOption.cardType as "credito" | "debito")
           : undefined,
+      storeName: activeStore ?? undefined,
     };
 
     const runLoad = () => {
@@ -201,7 +214,7 @@ export default function SearchableProductGrid() {
     const handle = setTimeout(runLoad, 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, activeCategory, activeBankKey]);
+  }, [query, activeCategory, activeBankKey, activeStore]);
 
   return (
     <>
@@ -232,7 +245,7 @@ export default function SearchableProductGrid() {
             placeholder="Buscar producto, ej. Xiaomi Redmi Note"
             style={{
               width: "100%",
-              padding: "16px 18px 16px 48px",
+              padding: query ? "16px 44px 16px 48px" : "16px 18px 16px 48px",
               fontSize: 16,
               border: "1px solid var(--color-border-strong)",
               borderRadius: "var(--radius-lg)",
@@ -251,9 +264,41 @@ export default function SearchableProductGrid() {
               e.currentTarget.style.boxShadow = "var(--shadow-card)";
             }}
           />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              aria-label="Borrar búsqueda"
+              style={{
+                position: "absolute",
+                right: 14,
+                top: "50%",
+                transform: "translateY(-50%)",
+                width: 26,
+                height: 26,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                border: "none",
+                borderRadius: "50%",
+                background: "var(--color-border)",
+                color: "var(--color-text-muted)",
+                cursor: "pointer",
+                padding: 0,
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "var(--color-border-strong)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "var(--color-border)";
+              }}
+            >
+              <CloseIcon />
+            </button>
+          )}
         </div>
 
-        {(categories.length > 0 || banks.length > 0) && (
+        {(categories.length > 0 || banks.length > 0 || stores.length > 0) && (
           <div
             style={{
               display: "flex",
@@ -288,6 +333,15 @@ export default function SearchableProductGrid() {
                 }))}
               />
             )}
+
+            {stores.length > 0 && (
+              <FilterDropdown
+                label="Todas las tiendas"
+                value={activeStore ?? ""}
+                onChange={(v) => setActiveStore(v || null)}
+                options={stores.map((s) => ({ value: s, label: s }))}
+              />
+            )}
           </div>
         )}
       </div>
@@ -313,6 +367,8 @@ export default function SearchableProductGrid() {
               ? `Ningún producto tiene una promo activa de ${activeBankOption.bankName} (${cardTypeLabel(
                   activeBankOption.cardType
                 ).toLowerCase()}) hoy.`
+              : activeStore
+              ? `${activeStore} no tiene el mejor precio en ningún producto con estos filtros.`
               : "Todavía no hay productos cargados."}
           </p>
         </div>

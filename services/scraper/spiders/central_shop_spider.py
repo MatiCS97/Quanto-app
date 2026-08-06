@@ -1,7 +1,14 @@
 """Spider para Central Shop (https://www.centralshop.com.py/).
 
 Selectores CSS confirmados por exploración real:
-- Tarjeta de producto: div.pc.card
+- Tarjeta de producto: div.pc.card (¡OJO! debe matchear EXACTO las clases
+  {"pc", "card"} — un filtro laxo tipo `"pc" in x and "card" in x` también
+  matchea el footer interno `div.pc-footer.card-body` de cada tarjeta,
+  porque "pc" es substring de "pc-footer" y "card" de "card-body". Eso
+  duplicaba visualmente el conteo de tarjetas pero cada "tarjeta fantasma"
+  no tiene ni a.pc-link ni título, así que se descartaba en el try/except
+  — el efecto neto era simplemente la mitad de tarjetas reales procesadas
+  sin ningún error visible. Ver historial de este archivo.)
 - Link y contenedor de info: a.pc-link
 - Marca: div.pc-brand (dentro del link)
 - Título: div.pc-name (dentro del link)
@@ -11,14 +18,33 @@ Selectores CSS confirmados por exploración real:
 - Precio original: span.pc-old-price
 
 Formato de precio: números con punto de mil, sin "Gs." (ej: "240.000", "1.000.000")
+
+Paginación: `?pagina=N` sobre la misma URL de categoría/búsqueda (ej.
+`?categoria=celulares-y-smartwatches&pagina=2`). Confirmado real: la
+categoría "celulares-y-smartwatches" tiene 2 páginas (12 + 11 productos =
+23 reales), la página 3 devuelve 0 tarjetas. El spider anterior no
+incrementaba `pagina`, por lo que solo traía la página 1 — y por el bug de
+selector arriba, ni siquiera los 12 completos llegaban a procesarse todos
+correctamente (coincidencia: en este caso puntual sí llegaban los 12 reales,
+pero duplicados con basura descartada). Se aplica un límite defensivo de
+páginas por consistencia con el resto de spiders del proyecto (ver
+contimarket_spider.py / tienda_movil_spider.py), aunque el catálogo real de
+esta categoría es pequeño.
 """
 
-from typing import List
+from typing import Dict, List, Tuple
+from urllib.parse import parse_qsl, urlencode
 
 import httpx
 from bs4 import BeautifulSoup
 
 from .base_spider import BaseSpider, ScrapedItem
+
+# Límite defensivo de páginas, igual criterio que otros spiders del
+# proyecto. El catálogo real de celulares-y-smartwatches tiene solo ~2
+# páginas al momento de esta investigación, pero no hay que asumir que se
+# mantendrá así para siempre.
+_MAX_PAGES = 15
 
 
 class CentralShopSpider(BaseSpider):
@@ -35,15 +61,45 @@ class CentralShopSpider(BaseSpider):
         return await self._scrape_listing(url)
 
     async def fetch_category(self, category_url: str) -> List[ScrapedItem]:
-        """Scraping de categoría de productos.
+        """Scraping de categoría de productos, siguiendo paginación `?pagina=N`.
 
         Acepta URLs como:
         - /productos?categoria=celulares-y-smartwatches&pagina=1
         - https://www.centralshop.com.py/productos?categoria=...
+
+        Cualquier `pagina=N` que venga incluido en category_url se ignora
+        y se reemplaza por el número de página real que se está pidiendo.
         """
         if not category_url.startswith("http"):
             category_url = f"{self.base_url}{category_url}"
-        return await self._scrape_listing(category_url)
+
+        base, params = _split_url_params(category_url)
+        params.pop("pagina", None)
+
+        items: List[ScrapedItem] = []
+        seen_urls = set()
+
+        for page_number in range(1, _MAX_PAGES + 1):
+            page_params = dict(params)
+            page_params["pagina"] = str(page_number)
+            page_url = f"{base}?{_urlencode(page_params)}"
+
+            page_items = await self._scrape_listing(page_url)
+
+            new_any = False
+            for item in page_items:
+                if item.product_url in seen_urls:
+                    continue
+                seen_urls.add(item.product_url)
+                items.append(item)
+                new_any = True
+
+            # Sin tarjetas nuevas: fin real de la paginación (o el sitio
+            # cambió de estructura). No seguir pidiendo páginas.
+            if not new_any:
+                break
+
+        return items
 
     async def _scrape_listing(self, url: str) -> List[ScrapedItem]:
         """Scraping de página de listado de productos usando httpx + BeautifulSoup."""
@@ -63,8 +119,13 @@ class CentralShopSpider(BaseSpider):
 
                 soup = BeautifulSoup(response.text, "html.parser")
 
-                # Obtener todas las tarjetas de producto
-                cards = soup.find_all("div", class_=lambda x: x and "pc" in x and "card" in x)
+                # Obtener todas las tarjetas de producto. Match EXACTO de
+                # las clases {"pc", "card"} — no un `in` laxo, que también
+                # capturaría el footer interno "pc-footer card-body" de
+                # cada tarjeta (ver nota en el docstring del módulo).
+                cards = soup.find_all(
+                    "div", class_=lambda x: x is not None and set(x.split()) == {"pc", "card"}
+                )
 
                 for card in cards:
                     try:
@@ -156,3 +217,15 @@ def _parse_guarani_price(text: str) -> float:
     # Extraer solo dígitos y punto decimal
     digits = "".join(ch for ch in text if ch.isdigit() or ch == ".")
     return float(digits) if digits else 0.0
+
+
+def _split_url_params(url: str) -> Tuple[str, Dict[str, str]]:
+    """Separa una URL en su base (sin querystring) y sus parámetros."""
+    if "?" not in url:
+        return url, {}
+    base, query = url.split("?", 1)
+    return base, dict(parse_qsl(query))
+
+
+def _urlencode(params: Dict[str, str]) -> str:
+    return urlencode(params)
