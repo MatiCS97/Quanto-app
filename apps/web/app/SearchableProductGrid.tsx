@@ -7,13 +7,35 @@ import {
   getCategories,
   getActiveBanks,
   ProductWithBestPrice,
+  BankOption,
 } from "./actions";
 
 function categoryLabel(category: string) {
   const labels: Record<string, string> = {
     celulares: "Celulares",
+    smartwatch: "Smartwatches",
+    funda_case: "Fundas y cases",
+    auricular: "Auriculares",
+    tablet: "Tablets",
+    notebook: "Notebooks",
+    camara: "Cámaras",
+    cargador: "Cargadores y cables",
+    accesorio: "Accesorios",
   };
   return labels[category] ?? category.charAt(0).toUpperCase() + category.slice(1);
+}
+
+function cardTypeLabel(cardType: string) {
+  const labels: Record<string, string> = {
+    credito: "Crédito",
+    debito: "Débito",
+    ambas: "Crédito y débito",
+  };
+  return labels[cardType] ?? cardType;
+}
+
+function bankOptionKey(bank: string, cardType: string) {
+  return `${bank}::${cardType}`;
 }
 
 function formatGs(value: number) {
@@ -44,36 +66,68 @@ function InfoIcon() {
   );
 }
 
-function FilterChip({
+function ChevronIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function FilterDropdown({
   label,
-  active,
-  onClick,
+  value,
+  onChange,
+  options,
   variant = "category",
 }: {
   label: string;
-  active: boolean;
-  onClick: () => void;
+  value: string;
+  onChange: (value: string) => void;
+  options: { value: string; label: string }[];
   variant?: "category" | "bank";
 }) {
-  const activeBg = variant === "bank" ? "var(--color-accent)" : "var(--color-text)";
+  const isActive = value !== "";
+  const accentColor = variant === "bank" ? "var(--color-accent)" : "var(--color-text)";
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        padding: "7px 14px",
-        fontSize: 12.5,
-        fontWeight: 600,
-        borderRadius: 999,
-        border: active ? "1px solid transparent" : "1px solid var(--color-border-strong)",
-        background: active ? activeBg : "var(--color-surface)",
-        color: active ? "#fff" : "var(--color-text-muted)",
-        cursor: "pointer",
-        transition: "background 150ms, color 150ms, border-color 150ms",
-      }}
-    >
-      {label}
-    </button>
+    <div style={{ position: "relative", display: "inline-flex" }}>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        aria-label={label}
+        style={{
+          appearance: "none",
+          padding: "9px 34px 9px 14px",
+          fontSize: 12.5,
+          fontWeight: 600,
+          borderRadius: 999,
+          border: isActive ? `1px solid ${accentColor}` : "1px solid var(--color-border-strong)",
+          background: isActive ? accentColor : "var(--color-surface)",
+          color: isActive ? "#fff" : "var(--color-text-muted)",
+          cursor: "pointer",
+        }}
+      >
+        <option value="">{label}</option>
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value} style={{ color: "#171412" }}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+      <span
+        style={{
+          position: "absolute",
+          right: 12,
+          top: "50%",
+          transform: "translateY(-50%)",
+          color: isActive ? "#fff" : "var(--color-text-muted)",
+          pointerEvents: "none",
+          display: "flex",
+        }}
+      >
+        <ChevronIcon />
+      </span>
+    </div>
   );
 }
 
@@ -102,19 +156,27 @@ export default function SearchableProductGrid() {
   const [loaded, setLoaded] = useState(false);
 
   const [categories, setCategories] = useState<string[]>([]);
-  const [banks, setBanks] = useState<string[]>([]);
+  const [banks, setBanks] = useState<BankOption[]>([]);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
-  const [activeBank, setActiveBank] = useState<string | null>(null);
+  const [activeBankKey, setActiveBankKey] = useState<string>("");
 
   useEffect(() => {
     getCategories().then(setCategories);
     getActiveBanks().then(setBanks);
   }, []);
 
+  const activeBankOption = banks.find(
+    (b) => bankOptionKey(b.bankName, b.cardType) === activeBankKey
+  );
+
   useEffect(() => {
     const filters = {
       category: activeCategory ?? undefined,
-      bankName: activeBank ?? undefined,
+      bankName: activeBankOption?.bankName,
+      cardType:
+        activeBankOption?.cardType && activeBankOption.cardType !== "ambas"
+          ? (activeBankOption.cardType as "credito" | "debito")
+          : undefined,
     };
 
     const runLoad = () => {
@@ -139,7 +201,7 @@ export default function SearchableProductGrid() {
     const handle = setTimeout(runLoad, 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, activeCategory, activeBank]);
+  }, [query, activeCategory, activeBankKey]);
 
   return (
     <>
@@ -191,67 +253,41 @@ export default function SearchableProductGrid() {
           />
         </div>
 
-        {categories.length > 0 && (
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "center",
-              gap: 8,
-              marginTop: 20,
-              flexWrap: "wrap",
-            }}
-          >
-            <FilterChip
-              label="Todas las categorías"
-              active={activeCategory === null}
-              onClick={() => setActiveCategory(null)}
-            />
-            {categories.map((cat) => (
-              <FilterChip
-                key={cat}
-                label={categoryLabel(cat)}
-                active={activeCategory === cat}
-                onClick={() => setActiveCategory(cat)}
-              />
-            ))}
-          </div>
-        )}
-
-        {banks.length > 0 && (
+        {(categories.length > 0 || banks.length > 0) && (
           <div
             style={{
               display: "flex",
               justifyContent: "center",
               alignItems: "center",
-              gap: 8,
-              marginTop: 10,
+              gap: 10,
+              marginTop: 20,
               flexWrap: "wrap",
             }}
           >
-            <span
-              style={{
-                fontSize: 12,
-                color: "var(--color-text-muted)",
-                marginRight: 2,
-              }}
-            >
-              Promo con:
-            </span>
-            <FilterChip
-              label="Todos los bancos"
-              active={activeBank === null}
-              onClick={() => setActiveBank(null)}
-              variant="bank"
-            />
-            {banks.map((bank) => (
-              <FilterChip
-                key={bank}
-                label={bank}
-                active={activeBank === bank}
-                onClick={() => setActiveBank(bank)}
-                variant="bank"
+            {categories.length > 0 && (
+              <FilterDropdown
+                label="Todas las categorías"
+                value={activeCategory ?? ""}
+                onChange={(v) => setActiveCategory(v || null)}
+                options={categories.map((cat) => ({ value: cat, label: categoryLabel(cat) }))}
               />
-            ))}
+            )}
+
+            {banks.length > 0 && (
+              <FilterDropdown
+                label="Descuento con tu tarjeta"
+                value={activeBankKey}
+                onChange={setActiveBankKey}
+                variant="bank"
+                options={banks.map((b) => ({
+                  value: bankOptionKey(b.bankName, b.cardType),
+                  label:
+                    b.cardType === "ambas"
+                      ? b.bankName
+                      : `${b.bankName} · ${cardTypeLabel(b.cardType)}`,
+                }))}
+              />
+            )}
           </div>
         )}
       </div>
@@ -273,8 +309,10 @@ export default function SearchableProductGrid() {
           <p style={{ fontSize: 15, margin: 0 }}>
             {query.trim().length >= 2
               ? `No encontramos productos para "${query.trim()}".`
-              : activeBank
-              ? `Ningún producto tiene una promo activa de ${activeBank} hoy.`
+              : activeBankOption
+              ? `Ningún producto tiene una promo activa de ${activeBankOption.bankName} (${cardTypeLabel(
+                  activeBankOption.cardType
+                ).toLowerCase()}) hoy.`
               : "Todavía no hay productos cargados."}
           </p>
         </div>

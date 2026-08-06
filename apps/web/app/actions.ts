@@ -9,6 +9,7 @@ export type BestPriceRow = {
   in_stock: boolean;
   product_url: string;
   bank_name: string | null;
+  card_type: string | null;
   discount_percentage: number | null;
   max_refund_amount: number | null;
   final_price: number;
@@ -26,6 +27,12 @@ export type ProductWithBestPrice = {
 export type ProductFilters = {
   category?: string;
   bankName?: string;
+  cardType?: "credito" | "debito";
+};
+
+export type BankOption = {
+  bankName: string;
+  cardType: "credito" | "debito" | "ambas";
 };
 
 const RESULT_LIMIT = 24;
@@ -55,6 +62,14 @@ async function attachBestPrices(
   if (filters?.bankName) {
     filtered = filtered.filter((p) => p.best!.bank_name === filters.bankName);
   }
+  if (filters?.cardType) {
+    // "ambas" en la promo significa que aplica tanto a crédito como a
+    // débito — no es un tercer valor excluyente, así que matchea con
+    // cualquiera de los dos filtros de tarjeta específicos.
+    filtered = filtered.filter(
+      (p) => p.best!.card_type === filters.cardType || p.best!.card_type === "ambas"
+    );
+  }
 
   return filtered
     .sort((a, b) => (a.best!.final_price ?? 0) - (b.best!.final_price ?? 0))
@@ -67,13 +82,22 @@ export async function getCategories(): Promise<string[]> {
   return Array.from(new Set(data.map((d) => d.category))).sort();
 }
 
-export async function getActiveBanks(): Promise<string[]> {
+export async function getActiveBanks(): Promise<BankOption[]> {
   const { data, error } = await supabase
     .from("bank_promotions")
-    .select("bank_name")
+    .select("bank_name, card_type")
     .eq("active", true);
   if (error || !data) return [];
-  return Array.from(new Set(data.map((d) => d.bank_name))).sort();
+
+  const seen = new Set<string>();
+  const options: BankOption[] = [];
+  for (const row of data) {
+    const key = `${row.bank_name}::${row.card_type}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    options.push({ bankName: row.bank_name, cardType: row.card_type });
+  }
+  return options.sort((a, b) => a.bankName.localeCompare(b.bankName));
 }
 
 export async function getLatestProducts(filters?: ProductFilters): Promise<ProductWithBestPrice[]> {
